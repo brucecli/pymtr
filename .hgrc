@@ -1,0 +1,17 @@
+[ui]
+username = mpenning
+
+[git]
+intree=1
+
+[paths]
+default = https://mpenning@bitbucket.org/mpenning/pymtr
+git = git+ssh://git@github.com:mpenning/pymtr.git
+
+[hooks]
+outgoing = hg push git+ssh://git@github.com:mpenning/pymtr.git
+
+[extensions]
+hgext.convert =
+hgext.bookmarks =
+hggit =
