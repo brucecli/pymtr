@@ -10,10 +10,23 @@ import time
 import sys
 import re
 
-from pandas import DataFrame, Timestamp
-from pandas import HDFStore # Req: libhdf5-dev, cython, numexpr, PyTables
-from pandas import concat
 from numpy import int32, float64, nan
+from pandas import DataFrame
+from pandas import Timestamp
+from pandas import HDFStore # Req: libhdf5-dev, cython, numexpr, PyTables
+# matplotlib requires:
+# - Python libraries
+#  - nose
+#  - tornado
+#  - pyparsing
+#
+# - System libraries
+#  - libfreetype6-dev (freetype2)
+#  - libcairo2-dev (libcairo)
+#  - libpng
+#  - libagg
+from matplotlib import pyplot
+import matplotlib
 
 """
 Copyright (c) 2014, David Michael Pennington <mike [~at~] pennington dot net>
@@ -279,20 +292,14 @@ class MtrHostJob(object):
     def json_result(self):
         return dumps(self.list_of_dicts)
 
-    @property
-    def dataframe_result(self):
-        # Index: hostname
-        # Index: host address
-        # Index: start_time
-        pass
-
     def __repr__(self):
         delta = self.end_time - self.start_time
         return "<MtrHostJob {0} drop {1}%, ran {2} seconds>".format(self.host, 
             self.result[-1].pct_drop_str, delta.seconds)
 
 if __name__=="__main__":
-    hosts = MonitorHosts(hosts={'dns1':"4.2.2.2", 'dns2': "8.8.8.8"}, 
+    hosts = MonitorHosts(hosts={'dns1':"4.2.2.2", 'dns2': "8.8.8.8", 
+        'server': '204.109.61.6'}, 
         timezone="America/Chicago", cycles=10)
 
     # Find all entries matching host (index) 4.2.2.2 and hop (index) = 1...
@@ -300,3 +307,25 @@ if __name__=="__main__":
 
     # Find all entries matching best<10.0
     print hosts.df['best']<10.0
+
+
+    # Building a plot with matplotlib
+    matplotlib.use('agg')
+    pyplot.rc('axes', grid=True)
+    pyplot.rc('axes', grid=True)
+    pyplot.rc('grid', color='0.75', linestyle='-', linewidth=0.5)
+    #textsize = 9
+    #left, width = 0.1, 0.8
+    #rect1 = [left, 0.7, width, 0.2]
+    #rect2 = [left, 0.3, width, 0.4]
+    #rect3 = [left, 0.1, width, 0.2]
+    #fig = pyplot.figure(facecolor='white')
+    #axescolor  = '#f6f6f6'  # the axies background color
+
+    # Plot the average stats for hop 172.16.1.1 across all data points
+    data = hosts.df.xs('172.16.1.1', level='addr').groupby('timestamp').mean()
+    dates = [str(s) for s in data.index]
+    data.plot(lw=4)
+    pyplot.savefig('foo.png')
+
+
