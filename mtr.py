@@ -294,8 +294,9 @@ class MtrHostJob(object):
 if __name__=="__main__":
     hosts = MonitorHosts(hosts={'dns1':"4.2.2.2", 'dns2': "8.8.8.8"}, 
         timezone="America/Chicago", cycles=10)
-    print hosts.df
+
     # Find all entries matching host (index) 4.2.2.2 and hop (index) = 1...
     print hosts.df.xs(['4.2.2.2', 1], level=['host', 'hop'])
-    print "YOMAMA"
+
+    # Find all entries matching best<10.0
     print hosts.df['best']<10.0
