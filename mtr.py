@@ -73,7 +73,7 @@ class MonitorHosts(object):
         self.hosts = hosts
         # Create an empty DataFrame with the correct columns
         datacolumns = ('host', 'hop', 'addr', 'timestamp', 'sent', 'drop', 
-            'best', 'worst', 'flap')
+            'best', 'avg', 'worst', 'flap')
         index = ['host', 'hop', 'addr']
         self.df = None
 
@@ -192,15 +192,16 @@ class MTR_Hop(object):
             'sent': self.sent,
             'drop': self.drop,
             'best': self.best,
+            'avg': self.avg,
             'worst': self.worst,
             'flap': self.flap,
             }
 
     @property
     def csv(self):
-        return "{0},{1},{2},{3},{4},{5},{6},{7}".format(self.host,
+        return "{0},{1},{2},{3},{4},{5},{6},{7},{8}".format(self.host,
             self.hop, self.addr, self.timestamp, self.sent, self.drop, 
-            self.best, self.worst)
+            self.best, self.avg, self.worst)
 
     def __repr__(self):
         return "<MTR_Hop {0} to {1}: {2}, {3}% drop, {4} avg>".format(self.hop, 
@@ -298,8 +299,7 @@ class MtrHostJob(object):
             self.result[-1].pct_drop_str, delta.seconds)
 
 if __name__=="__main__":
-    hosts = MonitorHosts(hosts={'dns1':"4.2.2.2", 'dns2': "8.8.8.8", 
-        'server': '204.109.61.6'}, 
+    hosts = MonitorHosts(hosts={'dns1':"4.2.2.2", 'dns2': "8.8.8.8",},
         timezone="America/Chicago", cycles=10)
 
     # Find all entries matching host (index) 4.2.2.2 and hop (index) = 1...
@@ -308,24 +308,21 @@ if __name__=="__main__":
     # Find all entries matching best<10.0
     print hosts.df['best']<10.0
 
-
-    # Building a plot with matplotlib
+    # Building a plot with pandas wrappers around matplotlib.pyplot
     matplotlib.use('agg')
-    pyplot.rc('axes', grid=True)
-    pyplot.rc('axes', grid=True)
-    pyplot.rc('grid', color='0.75', linestyle='-', linewidth=0.5)
-    #textsize = 9
-    #left, width = 0.1, 0.8
-    #rect1 = [left, 0.7, width, 0.2]
-    #rect2 = [left, 0.3, width, 0.4]
-    #rect3 = [left, 0.1, width, 0.2]
-    #fig = pyplot.figure(facecolor='white')
-    #axescolor  = '#f6f6f6'  # the axies background color
+    #pyplot.rc('font', size=14)
+    #pyplot.rc('axes', grid=True)
+    #pyplot.rc('axes', grid=True)
+    #pyplot.rc('grid', color='0.75', linestyle='-', linewidth=0.5)
 
-    # Plot the average stats for hop 172.16.1.1 across all data points
+    # Aggregate all datapoints for 172.16.1.1 for each common timestamp
     data = hosts.df.xs('172.16.1.1', level='addr').groupby('timestamp').mean()
-    dates = [str(s) for s in data.index]
-    data.plot(lw=4)
-    pyplot.savefig('foo.png')
+
+    title = "MTR Response time to 172.16.1.1"
+    data['avg'].plot(linestyle='solid', lw=4, marker='o', color='blue', 
+        legend=True, title=title)
+    data['worst'].plot(linestyle='dashed', color='red', 
+        legend=True, title=title)
+    pyplot.savefig('line_plot.png')
 
 
