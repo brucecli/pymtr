@@ -63,6 +63,25 @@ __copyright__ = "{0}, {1}".format(time.strftime('%Y'), __author__)
 __license__ = "BSD"
 __status__ = "Production"
 
+# Logical flow:
+#
+#    MonitorHosts()
+#         |
+#         | Collect stats and store in hdf5 format
+#         |
+#         V
+#     IterRunMP()
+#         |
+#         | work = [MtrHostJob(), MtrHostJob(), ...]
+#         |
+#         V
+#         Spawn:
+#            JobExecQueueMP(MtrHostJob())  <---- new Python Process
+#            JobExecQueueMP(MtrHostJob())  <---- new Python Process
+#            ...
+#
+# IterRunMP.drain_job_queue() dequeues a list of finished MtrHostJob objects 
+# into IterRunMP.result
 
 class MonitorHosts(object):
     def __init__(self, hosts=None, cycles=60, udp=False, 
@@ -76,6 +95,8 @@ class MonitorHosts(object):
             'best', 'avg', 'worst', 'flap')
         index = ['host', 'hop', 'addr']
         self.df = None
+        log = RotatingFile()
+        log.open()
 
         ## Build an empty result dictionary
         result = dict()
@@ -85,28 +106,37 @@ class MonitorHosts(object):
         try:
             # Run mtr in an endless loop until the program exits with Cntl-C
             while True:
-                jobs = IterRunMP(hosts=hosts, cycles=cycles, udp=udp, 
+                # IterRunMP.result contains a list of MtrHostJob() instances
+                finished = IterRunMP(hosts=hosts, cycles=cycles, udp=udp, 
                     timezone=timezone)
 
                 # Update the result dict with each mtr run...
-                for job in jobs.result:
+                for job in finished.result:
                     # Get each mtr hop result...
                     for row in job.result:
                         # Fill in parameters for each hop
                         for key, val in row.dictionary.items():
                             result[key].append(val)
+                    for entry in job.logs:
+                        log.write(entry+os.linesep)
 
         except KeyboardInterrupt:
-            self.df = DataFrame(result, columns=datacolumns)
-            self.df = self.df.set_index(index)
-            self.df.sort_index(inplace=True)
+            self.store_results(result=result, index=index, columns=datacolumns,
+                hdf5_file=hdf5_file)
 
-            # Store the DataFrame as an HDF5 file...
-            hdf = HDFStore(hdf5_file)
-            # Append the dataframe, and ensure addr / host can be 17 chars long
-            hdf.append('df', self.df, data_columns=list(datacolumns), 
-                min_itemsize={'addr': 17, 'host': 17})
-            hdf.close()
+        log.close()
+
+    def store_results(self, result, index, columns, hdf5_file):
+        self.df = DataFrame(result, columns=columns)
+        self.df = self.df.set_index(index)
+        self.df.sort_index(inplace=True)
+
+        # Store the DataFrame as an HDF5 file...
+        hdf = HDFStore(hdf5_file)
+        # Append the dataframe, and ensure addr / host can be 17 chars long
+        hdf.append('df', self.df, data_columns=list(columns), 
+            min_itemsize={'addr': 17, 'host': 17})
+        hdf.close()
 
 class IterRunMP(object):
     def __init__(self, hosts=None, cycles=60, udp=False, timezone="GMT"):
@@ -227,8 +257,10 @@ class MtrHostJob(object):
         self.is_valid = False
         self.exception = ""
         self.result = list()
+        self.logs = list()
 
     def run(self):
+        """Most Job execution should happen here"""
         if self.unittest:
             lines = self.unittest.split('\n')
         else:
@@ -298,12 +330,44 @@ class MtrHostJob(object):
         return "<MtrHostJob {0} drop {1}%, ran {2} seconds>".format(self.host, 
             self.result[-1].pct_drop_str, delta.seconds)
 
+class RotatingFile(object):
+    def __init__(self, directory='', filename='log.txt', max_files=sys.maxint,
+        max_file_size=50000):
+        self.ii = 1
+        self.directory, self.filename      = directory, filename
+        self.max_file_size, self.max_files = max_file_size, max_files
+        self.finished, self.fh             = False, None
+        self.open()
+
+    def rotate(self):
+        """Rotate the file, if necessary"""
+        if (os.stat(self.filename_template).st_size>self.max_file_size):
+            self.close()
+            self.ii += 1
+            if (self.ii<=self.max_files):
+                self.open()
+            else:
+                self.close()
+                self.finished = True
+
+    def open(self):
+        self.fh = open(self.filename_template, 'w')
+
+    def write(self, text=""):
+        self.fh.write(text)
+        self.fh.flush()
+        self.rotate()
+
+    def close(self):
+        self.fh.close()
+
+    @property
+    def filename_template(self):
+        return self.directory + self.filename + "_%0.2d" % self.ii
+
 if __name__=="__main__":
     hosts = MonitorHosts(hosts={'dns1':"4.2.2.2", 'dns2': "8.8.8.8",},
         timezone="America/Chicago", cycles=10)
-
-    # Find all entries matching host (index) 4.2.2.2 and hop (index) = 1...
-    print hosts.df.xs(['4.2.2.2', 1], level=['host', 'hop'])
 
     # Find all entries matching best<10.0
     print hosts.df['best']<10.0
@@ -316,6 +380,7 @@ if __name__=="__main__":
     #pyplot.rc('grid', color='0.75', linestyle='-', linewidth=0.5)
 
     # Aggregate all datapoints for 172.16.1.1 for each common timestamp
+    #    groupby() indexes the "data" variable by the "timestamp" column
     data = hosts.df.xs('172.16.1.1', level='addr').groupby('timestamp').mean()
 
     title = "MTR Response time to 172.16.1.1"
